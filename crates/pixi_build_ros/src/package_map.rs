@@ -789,11 +789,21 @@ mod tests {
     #[test]
     fn test_bundled_distro_mappings_override_shared_ones() {
         let humble = bundled_package_map("humble").unwrap();
+        let kilted = bundled_package_map("kilted").unwrap();
         let rolling = bundled_package_map("rolling").unwrap();
         let qt = |map| lookup(map, "qtbase5-dev", Subdir::Osx64).unwrap();
+        for qt5 in [&humble, &kilted] {
+            assert_eq!(
+                qt(qt5),
+                Some(MappedPackages::Conda(vec!["qt-main".to_string()]))
+            );
+        }
         assert_eq!(
-            qt(&humble),
-            Some(MappedPackages::Conda(vec!["qt-main".to_string()]))
+            lookup(&kilted, "python3-qt5-bindings", Subdir::Osx64).unwrap(),
+            Some(MappedPackages::Conda(vec![
+                "pyqt".to_string(),
+                "pyqt-builder".to_string()
+            ]))
         );
         assert_eq!(
             qt(&rolling),
