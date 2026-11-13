@@ -134,6 +134,13 @@ impl GenerateRecipe for RosGenerator {
 
         // Load package mappings: the user's over the bundled RoboStack ones
         let mut all_mapping_sources = config.extra_package_mappings.clone();
+        for source in &mut all_mapping_sources {
+            if let PackageMappingSource::File { path } = source
+                && path.is_relative()
+            {
+                *path = manifest_root.join(&*path);
+            }
+        }
         all_mapping_sources.push(PackageMappingSource::Mapping(
             package_map::bundled_package_map(&distro.name)?,
         ));
@@ -972,10 +979,15 @@ mod tests {
         fs::copy(&source, &dest).unwrap();
 
         let test_data = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_data");
+        fs::copy(
+            test_data.join("other_package_map.yaml"),
+            temp_path.join("mapping.yaml"),
+        )
+        .unwrap();
         let config = RosBackendConfig {
             distro: Some("noetic".to_string()),
             extra_package_mappings: vec![PackageMappingSource::File {
-                path: test_data.join("other_package_map.yaml"),
+                path: PathBuf::from("mapping.yaml"),
             }],
             ..Default::default()
         };

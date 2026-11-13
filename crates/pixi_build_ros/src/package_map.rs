@@ -7,9 +7,11 @@
 //! (per distribution, over it) are generated from the RoboStack repository, which
 //! RoboStack's own recipe generator reads too: both resolve rosdep keys the same way.
 
+use std::cell::LazyCell;
 use std::collections::HashMap;
 
 use miette::Diagnostic;
+use rattler_build_jinja::{Jinja, JinjaConfig};
 use rattler_build_recipe::stage0::{ConditionalList, Item, SerializableMatchSpec, Value};
 use rattler_conda_types::{MatchSpec, ParseStrictness, Subdir};
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,14 @@ pub enum PackageMapError {
         name: String,
         #[source]
         source: serde_yaml::Error,
+    },
+
+    #[error("failed to render package mapping '{spec}' for '{dep_name}'")]
+    RenderSpec {
+        dep_name: String,
+        spec: String,
+        #[source]
+        source: minijinja::Error,
     },
 
     #[error(
@@ -261,6 +271,25 @@ fn resolve_rosdep_to_conda_package_spec(
         }
         Some(MappedPackages::Conda(packages)) => packages,
     };
+
+    let jinja = LazyCell::new(|| {
+        Jinja::new(JinjaConfig {
+            target_platform: host_platform,
+            host_platform,
+            ..Default::default()
+        })
+    });
+    for package in &mut conda_packages {
+        if package.contains("${{") {
+            *package = jinja
+                .render_str(package)
+                .map_err(|source| PackageMapError::RenderSpec {
+                    dep_name: dep.name.clone(),
+                    spec: package.clone(),
+                    source,
+                })?;
+        }
+    }
 
     // A version specifier applies to the mapping's first package; the others are
     // its companions (e.g. libgl-devel for Qt on Linux).
@@ -770,6 +799,27 @@ mod tests {
             qt(&rolling),
             Some(MappedPackages::Conda(vec!["qt6-main".to_string()]))
         );
+    }
+
+    #[test]
+    fn test_cuda_mapping_uses_the_target_platform() {
+        let package_map = robostack_data();
+        for platform in [Subdir::Linux64, Subdir::LinuxAarch64] {
+            let specs = rosdep_to_conda_package_spec(
+                &Dependency::from("nvidia-cuda"),
+                &jazzy_distro(),
+                platform,
+                &package_map,
+            )
+            .unwrap();
+            assert_eq!(
+                specs,
+                vec![
+                    "cuda-cudart-dev".to_string(),
+                    format!("cuda-nvcc-dev_{platform}"),
+                ]
+            );
+        }
     }
 
     #[test]
