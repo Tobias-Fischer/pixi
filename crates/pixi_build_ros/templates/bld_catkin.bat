@@ -45,6 +45,7 @@ cmake ^
     -DBoost_USE_STATIC_LIBS=OFF ^
     %CATKIN_BUILD_BINARY_PACKAGE_ARGS% ^
     -DCATKIN_SKIP_TESTING=%SKIP_TESTING% ^
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ^
     @(cmake_args) ^
     @(source_dir)
 if errorlevel 1 exit 1
