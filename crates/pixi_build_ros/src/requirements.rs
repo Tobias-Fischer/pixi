@@ -288,7 +288,7 @@ impl Rules {
         } else {
             build.spec("m2-patch");
         }
-        if let Some(interpreter) = script_interpreter(build_type, !unix) {
+        if let Some(interpreter) = script_interpreter(!unix) {
             build.spec(interpreter);
         }
         if osx {

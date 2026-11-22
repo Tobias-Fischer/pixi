@@ -15,8 +15,7 @@ use rattler_build_types::NormalizedKey;
 use rattler_conda_types::{ChannelUrl, Subdir};
 
 use pixi_build_ros::build_script::{
-    BuildMode, BuildType, ScriptVars, escape_quoted, is_batch, render_build_script,
-    script_interpreter,
+    BuildMode, BuildType, ScriptVars, escape_quoted, render_build_script, script_interpreter,
 };
 use pixi_build_ros::config::{PackageMappingSource, extract_distro_from_channels_list};
 use pixi_build_ros::distro::Distro;
@@ -246,13 +245,9 @@ impl GenerateRecipe for RosGenerator {
         // operating system is the host platform's (as for the requirements):
         // `pixi build` does not cross-compile between operating systems.
         let windows = host_platform.is_windows();
-        let source_dir = escape_quoted(
-            &manifest_root.display().to_string(),
-            is_batch(build_type, windows),
-        );
+        let source_dir = escape_quoted(&manifest_root.display().to_string());
         let build_script_content = render_build_script(
             build_type,
-            windows,
             BuildMode::Incremental,
             &ScriptVars {
                 generator: "pixi-build-ros",
@@ -284,7 +279,7 @@ impl GenerateRecipe for RosGenerator {
             .plan
             .script_mut()
             .expect("generated recipes use script mode") = Script {
-            interpreter: script_interpreter(build_type, windows)
+            interpreter: script_interpreter(windows)
                 .map(|i| Value::new_concrete(i.to_string(), None)),
             ..Script::from_content(build_script_content)
                 .with_env(script_env)
