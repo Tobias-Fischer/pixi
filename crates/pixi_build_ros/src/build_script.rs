@@ -99,35 +99,25 @@ pub struct ScriptVars<'a> {
 }
 
 /// The file name of the build script, e.g. `build_ament_cmake.sh`.
-pub fn script_name(build_type: BuildType, windows: bool) -> &'static str {
-    match (build_type, windows) {
-        (BuildType::AmentCmake, _) => "build_ament_cmake.sh",
-        (BuildType::AmentPython, _) => "build_ament_python.sh",
-        (BuildType::Cmake, _) => "build_cmake.sh",
-        (BuildType::Catkin, false) => "build_catkin.sh",
-        (BuildType::Catkin, true) => "bld_catkin.bat",
+pub fn script_name(build_type: BuildType) -> &'static str {
+    match build_type {
+        BuildType::AmentCmake => "build_ament_cmake.sh",
+        BuildType::AmentPython => "build_ament_python.sh",
+        BuildType::Cmake => "build_cmake.sh",
+        BuildType::Catkin => "build_catkin.sh",
     }
 }
 
 /// The interpreter the recipe runs the build script with, if not the platform's
-/// default (bash, cmd.exe): the ROS 2 scripts are bash scripts, which run on
-/// Windows with brush, a bash-compatible shell (in the build requirements).
-pub fn script_interpreter(build_type: BuildType, windows: bool) -> Option<&'static str> {
-    (windows && !is_batch(build_type, windows)).then_some("brush")
-}
-
-/// Whether the build script is a batch file rather than a bash script: only
-/// ROS 1's on Windows.
-pub fn is_batch(build_type: BuildType, windows: bool) -> bool {
-    windows && build_type == BuildType::Catkin
+/// default (bash): the scripts are bash scripts, which run on Windows with
+/// brush, a bash-compatible shell (in the build requirements).
+pub fn script_interpreter(windows: bool) -> Option<&'static str> {
+    windows.then_some("brush")
 }
 
 /// Escape `text` for a double-quoted string of a build script, so that e.g. a
-/// path with `$` or `%` reaches the build as it is.
-pub fn escape_quoted(text: &str, batch: bool) -> String {
-    if batch {
-        return text.replace('%', "%%");
-    }
+/// path with `$` reaches the build as it is.
+pub fn escape_quoted(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for c in text.chars() {
         if matches!(c, '\\' | '$' | '`' | '"') {
@@ -138,25 +128,21 @@ pub fn escape_quoted(text: &str, batch: bool) -> String {
     escaped
 }
 
-fn template(build_type: BuildType, windows: bool) -> &'static str {
-    match (build_type, windows) {
-        (BuildType::AmentPython, _) => include_str!("../templates/build_ament_python.sh"),
-        (BuildType::AmentCmake | BuildType::Cmake, _) => {
-            include_str!("../templates/build_cmake.sh")
-        }
-        (BuildType::Catkin, false) => include_str!("../templates/build_catkin.sh"),
-        (BuildType::Catkin, true) => include_str!("../templates/bld_catkin.bat"),
+fn template(build_type: BuildType) -> &'static str {
+    match build_type {
+        BuildType::AmentPython => include_str!("../templates/build_ament_python.sh"),
+        BuildType::AmentCmake | BuildType::Cmake => include_str!("../templates/build_cmake.sh"),
+        BuildType::Catkin => include_str!("../templates/build_catkin.sh"),
     }
 }
 
-/// Render the build script of a package (`windows` is the platform it runs on):
-/// a bash script, or for ROS 1 on Windows a batch file.
+/// Render the build script of a package, a bash script (which branches on
+/// `$target_platform` for Windows).
 ///
 /// Template lines starting with `@[clean]` / `@[incremental]` are only kept
 /// in that [`BuildMode`]; `@(name)` is replaced by the [`ScriptVars`] field.
 pub fn render_build_script(
     build_type: BuildType,
-    windows: bool,
     mode: BuildMode,
     vars: &ScriptVars<'_>,
 ) -> String {
@@ -164,7 +150,7 @@ pub fn render_build_script(
         BuildMode::Clean => ("@[clean]", "@[incremental]"),
         BuildMode::Incremental => ("@[incremental]", "@[clean]"),
     };
-    template(build_type, windows)
+    template(build_type)
         .split_inclusive('\n')
         .filter(|line| !line.starts_with(skip))
         .map(|line| line.strip_prefix(keep).unwrap_or(line))
@@ -224,8 +210,7 @@ mod tests {
 
     #[test]
     fn test_escape_quoted() {
-        assert_eq!(escape_quoted(r#"C:\a $b`"%"#, false), r#"C:\\a \$b\`\"%"#);
-        assert_eq!(escape_quoted(r"C:\a %b%", true), r"C:\a %%b%%");
+        assert_eq!(escape_quoted(r#"C:\a $b`"%"#), r#"C:\\a \$b\`\"%"#);
     }
 
     #[test]
@@ -236,21 +221,17 @@ mod tests {
             BuildType::Cmake,
             BuildType::Catkin,
         ] {
-            for windows in [false, true] {
-                for mode in [BuildMode::Clean, BuildMode::Incremental] {
-                    let script = render_build_script(build_type, windows, mode, &VARS);
-                    assert!(script.contains("/my/source"), "{build_type:?}");
-                    // every CMake build gets the package's extra CMake arguments
-                    if build_type != BuildType::AmentPython {
-                        assert!(script.contains("-DFOO=ON"), "{build_type:?} {windows}");
-                    }
-                    assert!(!script.contains("@("), "{build_type:?} {windows}");
-                    assert!(!script.contains("@["), "{build_type:?} {windows}");
-                    // bash and brush reject CRLF (see .gitattributes)
-                    if !is_batch(build_type, windows) {
-                        assert!(!script.contains('\r'), "{build_type:?} {windows}");
-                    }
+            for mode in [BuildMode::Clean, BuildMode::Incremental] {
+                let script = render_build_script(build_type, mode, &VARS);
+                assert!(script.contains("/my/source"), "{build_type:?}");
+                // every CMake build gets the package's extra CMake arguments
+                if build_type != BuildType::AmentPython {
+                    assert!(script.contains("-DFOO=ON"), "{build_type:?}");
                 }
+                assert!(!script.contains("@("), "{build_type:?}");
+                assert!(!script.contains("@["), "{build_type:?}");
+                // bash and brush reject CRLF (see .gitattributes)
+                assert!(!script.contains('\r'), "{build_type:?}");
             }
         }
     }
